@@ -28,6 +28,10 @@ namespace SongRecommendAPI.Service
 
         private string _releaseDate { get; set; }
 
+        private string _albumCover { get; set; }
+
+        private string _albumName { get; set; }
+
         private CrawlConfiguration _config = new CrawlConfiguration {
             CrawlTimeoutSeconds = 0,
             DownloadableContentTypes = "text/html, text/plain",
@@ -83,6 +87,22 @@ namespace SongRecommendAPI.Service
             else {
                 _releaseDate = releaseNode.NextSibling.NextSibling.InnerText;
             }
+
+            var albumCoverNode = doc.SelectSingleNode(".//a[@class='image_typeAll']").ChildNodes[1];
+            if (albumCoverNode == null) {
+                _albumCover = null;
+            }
+            else {
+                _albumCover = albumCoverNode.GetAttributeValue("src", "");
+            }
+
+            var albumNameNode = doc.SelectSingleNode(".//dt[text()='앨범']");
+            if (albumNameNode == null) {
+                _albumName = null;
+            }
+            else {
+                _albumName = albumNameNode.NextSibling.NextSibling.InnerText;
+            }
         }
 
 
@@ -100,63 +120,73 @@ namespace SongRecommendAPI.Service
             }
 
             var analyzeResult = AnalyzeRateSvc.Execute(lyric);
+
+            //---------------------------
+            // 좋아요 가져오기
+            //---------------------------
+            jsonString = client.GetStringAsync($"https://www.melon.com/commonlike/getSongLike.json?contsIds={SongId}").Result;
+            var like = 0;
+            try {
+                like = JObject.Parse(jsonString).Value<IEnumerable<JToken>>("contsLike").First().Value<int>("SUMMCNT");
+            }
+            catch { }
+
+            //---------------------------
+            // 크롤링 설정
+            //---------------------------
+            var pageRequester = new PageRequester(_config);
+            var crawler = new PoliteWebCrawler(_config, null, null, null, pageRequester, null, null, null, null);
+            crawler.PageCrawlCompletedAsync += ProcessDetailPageCrawlCompletedAsync;
+
+            //---------------------------
+            // 크롤링 시작
+            //---------------------------
+            crawler.Crawl(new Uri($"https://www.melon.com/song/detail.htm?songId={SongId}"));
+
+            var song = new ProposeSong {
+                SongId = SongId,
+                Title = _title,
+                Singer = _singer,
+                Lyric = lyric,
+                Rate = analyzeResult.Rate,
+                Like = like,
+                Genre = _genre,
+                ReleaseDate = _releaseDate,
+                AddDate = DateTime.Now
+            };
+
+            if (analyzeResult.Rate > 70) {
+                using (var db = new SongRecommendContext()) {
+                    if (db.ProposeSong.Find(SongId) == null) {
+                        db.ProposeSong.Add(song);
+                        db.SaveChanges();
+                    }
+                }
+            }
+
             var resultLyric = lyric;
 
             foreach (var word in analyzeResult.Words) {
                 resultLyric = resultLyric.Replace(word.Word, $@"<span class='v-chip theme--dark light-green darken-2'><span class='v-chip__content tooltip'>{word.Word}<span class='tooltiptext'>{(int)word.Rate}%</span></span></span>");
             }
 
-            if (analyzeResult.Rate > 70) {
-                using (var db = new SongRecommendContext()) {
-                    if (db.ProposeSong.Find(SongId) == null) {
-                        //---------------------------
-                        // 좋아요 가져오기
-                        //---------------------------
-                        jsonString = client.GetStringAsync($"https://www.melon.com/commonlike/getSongLike.json?contsIds={SongId}").Result;
-                        var like = 0;
-                        try {
-                            like = JObject.Parse(jsonString).Value<IEnumerable<JToken>>("contsLike").First().Value<int>("SUMMCNT");
-                        }
-                        catch { }
-
-                        //---------------------------
-                        // 크롤링 설정
-                        //---------------------------
-                        var pageRequester = new PageRequester(_config);
-                        var crawler = new PoliteWebCrawler(_config, null, null, null, pageRequester, null, null, null, null);
-                        crawler.PageCrawlCompletedAsync += ProcessDetailPageCrawlCompletedAsync;
-
-                        //---------------------------
-                        // 크롤링 시작
-                        //---------------------------
-                        crawler.Crawl(new Uri($"https://www.melon.com/song/detail.htm?songId={SongId}"));
-
-                        db.ProposeSong.Add(new ProposeSong {
-                            SongId = SongId,
-                            Title = _title,
-                            Singer = _singer,
-                            Lyric = lyric,
-                            Rate = analyzeResult.Rate,
-                            Like = like,
-                            Genre = _genre,
-                            ReleaseDate = _releaseDate,
-                            AddDate = DateTime.Now
-                        });
-                        db.SaveChanges();
-                    }
-                }
-            }
-
-            return new AnalyzeSongResult {
+            var result = new AnalyzeSongResult {
+                SongId = SongId,
+                Title = _title,
+                Singer = _singer,
+                Lyric = resultLyric,
                 Rate = analyzeResult.Rate,
-                Lyric = resultLyric
+                AlbumCover = _albumCover,
+                AlbumName = _albumName
             };
+
+            return result;
         }
     }
 
-    public class AnalyzeSongResult
+    public class AnalyzeSongResult : ProposeSong
     {
-        public double Rate { get; set; }
-        public string Lyric { get; set; }
+        public string AlbumCover { get; set; }
+        public string AlbumName { get; set; }
     }
 }

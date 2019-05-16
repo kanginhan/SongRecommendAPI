@@ -30,7 +30,7 @@ namespace SongRecommendAPI
             services.AddCors(options => {
                 options.AddPolicy(MyAllowSpecificOrigins,
                 builder => {
-                    builder.WithOrigins("https://songrecommendadmin.azurewebsites.net", "https://songrecommend.azurewebsites.net")
+                    builder.WithOrigins("https://songrecommendadmin.azurewebsites.net", "https://songrecommend.azurewebsites.net", "http://localhost:8080")
                             .AllowAnyHeader()
                             .AllowAnyMethod()
                              .AllowCredentials();

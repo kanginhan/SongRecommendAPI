@@ -25,6 +25,16 @@ namespace SongRecommendAPI.Controllers
         }
 
         [HttpGet]
+        public IActionResult AddSingSong(int songId)
+        {
+            var biz = new AddSingSongSvc();
+            biz.SongId = songId;
+            var result = biz.Execute();
+
+            return Ok(result);
+        }
+
+        [HttpGet]
         public List<BaseWordCollectingSong> GetListBaseSongs()
         {
             using (var db = new SongRecommendContext()) {
@@ -136,8 +146,8 @@ namespace SongRecommendAPI.Controllers
         [HttpGet]
         public IActionResult CalcSongsRate()
         {
-            using(var db = new SongRecommendContext()) {
-                foreach(var song in db.ProposeSong) {
+            using (var db = new SongRecommendContext()) {
+                foreach (var song in db.ProposeSong) {
                     song.Rate = AnalyzeRateSvc.Execute(song.Lyric).Rate;
                 }
                 db.SaveChanges();
@@ -162,6 +172,60 @@ namespace SongRecommendAPI.Controllers
             var result = svc.Execute();
 
             return Ok(result);
+        }
+
+        [HttpGet]
+        public IActionResult BaseSongToPropose()
+        {
+            var svc = new BaseSongToProposeSvc();
+            var result = svc.Execute();
+            
+            return Ok(result);
+        }
+
+        [HttpGet]
+        public IActionResult FindChartList()
+        {
+            var svc = new FindChartListSvc();
+            var result = svc.Execute();
+
+            return Ok(result);
+        }
+
+        [HttpGet]
+        public IActionResult FindNewList()
+        {
+            var svc = new FindNewListSvc();
+            var result = svc.Execute();
+
+            return Ok(result);
+        }
+
+        [HttpGet]
+        public IActionResult UpdateProposeSongs()
+        {
+            using(var db = new SongRecommendContext()) {
+                var count = 0;
+                foreach(var song in db.ProposeSong) {
+                    //---------------------------
+                    // 좋아요 가져오기
+                    //---------------------------
+                    HttpClient client = new HttpClient();
+                    var jsonString = client.GetStringAsync($"https://www.melon.com/commonlike/getSongLike.json?contsIds={song.SongId}").Result;
+                    var like = 0;
+                    try {
+                        like = JObject.Parse(jsonString).Value<IEnumerable<JToken>>("contsLike").First().Value<int>("SUMMCNT");
+                    }
+                    catch { }
+
+                    song.Like = like;
+                    song.Rate = AnalyzeRateSvc.Execute(song.Lyric).Rate;
+                    count++;
+                }
+
+                db.SaveChanges();
+                return Ok(count);
+            }
         }
     }
 
